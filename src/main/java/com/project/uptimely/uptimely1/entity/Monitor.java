@@ -2,6 +2,7 @@ package com.project.uptimely.uptimely1.entity;
 
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
+import org.hibernate.validator.constraints.URL;
 
 import java.time.Instant;
 
@@ -20,6 +21,7 @@ public class Monitor {
 
     @Column(name = "url", length = 2048)
     @NotBlank
+    @URL
     private String url;
 
     @Column(name = "interval_seconds", nullable = false)
