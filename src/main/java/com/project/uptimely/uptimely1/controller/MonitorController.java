@@ -1,5 +1,6 @@
 package com.project.uptimely.uptimely1.controller;
 
+import com.project.uptimely.uptimely1.dto.CheckResultResponse;
 import com.project.uptimely.uptimely1.dto.MonitorRequest;
 import com.project.uptimely.uptimely1.dto.MonitorResponse;
 import com.project.uptimely.uptimely1.dto.UpdateMonitorRequest;
@@ -58,4 +59,10 @@ public class MonitorController {
     public MonitorResponse resumeMonitor(@PathVariable Long id) {
         return monitorService.resume(id);
     }
+
+    @PostMapping("/{id}/check")
+    public CheckResultResponse checkMonitor(@PathVariable Long id) {
+        return monitorService.checkNow(id);
+    }
 }
+

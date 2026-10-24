@@ -80,6 +80,64 @@ class MonitorRepositoryTest {
         assertThat(monitorRepository.findById(saved.getId()).orElseThrow().getUrl()).hasSize(1020);
     }
 
+    @Test
+    void findByActiveTrue_skipsPausedMonitors() {
+        Monitor active = monitorRepository.save(monitor("Active"));
+        Monitor paused = monitor("Paused");
+        paused.setActive(false);
+        monitorRepository.save(paused);
+
+        assertThat(monitorRepository.findByActiveTrue())
+                .extracting(Monitor::getId)
+                .containsExactly(active.getId());
+    }
+
+    @Test
+    void updateStatus_changesOnlyStatusAndLastCheckedAt() {
+        Monitor saved = monitorRepository.save(monitor("Google"));
+        entityManager.flush();
+        entityManager.clear();
+
+        // the user pauses the monitor while a check is in progress
+        Monitor fromApi = monitorRepository.findById(saved.getId()).orElseThrow();
+        fromApi.setActive(false);
+        entityManager.flush();
+        entityManager.clear();
+
+        // then the scheduler records the result
+        Instant checkedAt = Instant.parse("2026-10-24T12:00:00Z");
+        int updated = monitorRepository.updateStatus(saved.getId(), MonitorStatus.UP, checkedAt);
+        entityManager.clear();
+
+        Monitor loaded = monitorRepository.findById(saved.getId()).orElseThrow();
+        assertThat(updated).isEqualTo(1);
+        assertThat(loaded.getCurrentStatus()).isEqualTo(MonitorStatus.UP);
+        assertThat(loaded.getLastCheckedAt()).isEqualTo(checkedAt);
+        // the pause survived: no lost update
+        assertThat(loaded.getActive()).isFalse();
+    }
+
+    @Test
+    void updateStatus_returnsZero_whenMonitorDoesNotExist() {
+        assertThat(monitorRepository.updateStatus(999L, MonitorStatus.UP, Instant.now())).isZero();
+    }
+
+    @Test
+    void deletingMonitor_deletesItsCheckResults() {
+        Monitor monitor = monitorRepository.save(monitor("Google"));
+        checkResultRepository.save(checkResult(monitor, true, 200, 100L, null));
+        checkResultRepository.save(checkResult(monitor, false, 503, 50L, "HTTP 503"));
+        entityManager.flush();
+        entityManager.clear();
+
+        monitorRepository.deleteById(monitor.getId());
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(monitorRepository.count()).isZero();
+        assertThat(checkResultRepository.count()).isZero();
+    }
+
     private static Monitor monitor(String name) {
         Monitor monitor = new Monitor();
         monitor.setName(name);

@@ -40,6 +40,11 @@ public class Monitor {
     @Column(name = "last_checked_at")
     private Instant lastCheckedAt;
 
+    public boolean isDue(Instant now) {
+        return lastCheckedAt == null ||
+                !lastCheckedAt.plusSeconds(intervalSeconds).isAfter(now);
+    }
+
     @PrePersist
     void onCreate() {
         createdAt = Instant.now();

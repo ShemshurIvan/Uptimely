@@ -2,6 +2,8 @@ package com.project.uptimely.uptimely1.entity;
 
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 
 import java.time.Instant;
 
@@ -16,6 +18,7 @@ public class CheckResult {
 
     @JoinColumn(name = "monitor_id")
     @ManyToOne(fetch = FetchType.LAZY)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     @NotNull
     private Monitor monitor;
 
