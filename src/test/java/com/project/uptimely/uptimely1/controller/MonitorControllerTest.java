@@ -3,17 +3,21 @@ package com.project.uptimely.uptimely1.controller;
 import com.project.uptimely.uptimely1.dto.CheckResultResponse;
 import com.project.uptimely.uptimely1.dto.MonitorRequest;
 import com.project.uptimely.uptimely1.dto.MonitorResponse;
+import com.project.uptimely.uptimely1.dto.MonitorStatsResponse;
 import com.project.uptimely.uptimely1.dto.UpdateMonitorRequest;
 import com.project.uptimely.uptimely1.entity.MonitorStatus;
+import com.project.uptimely.uptimely1.exception.InvalidRequestException;
 import com.project.uptimely.uptimely1.exception.MonitorNotFoundException;
 import com.project.uptimely.uptimely1.service.MonitorService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -304,6 +308,131 @@ class MonitorControllerTest {
     void wrongHttpMethod_returns405NotOverriddenByCatchAll() throws Exception {
         mockMvc.perform(delete("/api/monitors"))
                 .andExpect(status().isMethodNotAllowed());
+    }
+
+    // --- GET /api/monitors/{id}/checks ---
+
+    @Test
+    void getChecks_passesNullRange_andSortsNewestFirstByDefault() throws Exception {
+        when(monitorService.getChecks(eq(1L), any(), any(), any())).thenReturn(new PageImpl<>(
+                List.of(new CheckResultResponse(5L, Instant.parse("2026-10-24T10:00:00Z"), true, 200, 120L, null)),
+                PageRequest.of(0, 20), 1));
+
+        mockMvc.perform(get("/api/monitors/1/checks"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(5))
+                .andExpect(jsonPath("$.content[0].statusCode").value(200))
+                .andExpect(jsonPath("$.page.size").value(20))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(monitorService).getChecks(eq(1L), eq(null), eq(null), pageable.capture());
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(20);
+        assertThat(pageable.getValue().getSort()).isEqualTo(Sort.by(Sort.Direction.DESC, "checkedAt"));
+    }
+
+    @Test
+    void getChecks_parsesFromAndTo() throws Exception {
+        when(monitorService.getChecks(eq(1L), any(), any(), any())).thenReturn(Page.empty());
+
+        mockMvc.perform(get("/api/monitors/1/checks")
+                        .param("from", "2026-10-24T00:00:00Z")
+                        .param("to", "2026-10-24T12:00:00Z"))
+                .andExpect(status().isOk());
+
+        verify(monitorService).getChecks(eq(1L),
+                eq(Instant.parse("2026-10-24T00:00:00Z")),
+                eq(Instant.parse("2026-10-24T12:00:00Z")),
+                any());
+    }
+
+    @Test
+    void getChecks_capsPageSizeAt100() throws Exception {
+        when(monitorService.getChecks(eq(1L), any(), any(), any())).thenReturn(Page.empty());
+
+        mockMvc.perform(get("/api/monitors/1/checks").param("size", "5000"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(monitorService).getChecks(eq(1L), any(), any(), pageable.capture());
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(100);
+    }
+
+    @Test
+    void getChecks_returns400_whenFromIsNotADate() throws Exception {
+        mockMvc.perform(get("/api/monitors/1/checks").param("from", "yesterday"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Invalid value 'yesterday' for parameter 'from'"));
+
+        verify(monitorService, never()).getChecks(any(), any(), any(), any());
+    }
+
+    @Test
+    void getChecks_returns400_whenFromAfterTo() throws Exception {
+        when(monitorService.getChecks(eq(1L), any(), any(), any()))
+                .thenThrow(new InvalidRequestException("'from' must be before 'to'"));
+
+        mockMvc.perform(get("/api/monitors/1/checks")
+                        .param("from", "2026-10-24T12:00:00Z")
+                        .param("to", "2026-10-24T00:00:00Z"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("'from' must be before 'to'"));
+    }
+
+    @Test
+    void getChecks_returns404_whenMonitorMissing() throws Exception {
+        when(monitorService.getChecks(eq(99L), any(), any(), any()))
+                .thenThrow(new MonitorNotFoundException(99L));
+
+        mockMvc.perform(get("/api/monitors/99/checks"))
+                .andExpect(status().isNotFound());
+    }
+
+    // --- GET /api/monitors/{id}/stats ---
+
+    @Test
+    void getStats_defaultsTo24h() throws Exception {
+        when(monitorService.getStats(1L, "24h")).thenReturn(new MonitorStatsResponse(1L, "24h",
+                Instant.parse("2026-10-23T12:00:00Z"), Instant.parse("2026-10-24T12:00:00Z"),
+                4, 1, 75.0, 150.0));
+
+        mockMvc.perform(get("/api/monitors/1/stats"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.period").value("24h"))
+                .andExpect(jsonPath("$.totalChecks").value(4))
+                .andExpect(jsonPath("$.failedChecks").value(1))
+                .andExpect(jsonPath("$.uptimePercent").value(75.0))
+                .andExpect(jsonPath("$.avgResponseMs").value(150.0));
+    }
+
+    @Test
+    void getStats_passesPeriod() throws Exception {
+        when(monitorService.getStats(1L, "7d")).thenReturn(new MonitorStatsResponse(1L, "7d",
+                Instant.parse("2026-10-17T12:00:00Z"), Instant.parse("2026-10-24T12:00:00Z"),
+                0, 0, null, null));
+
+        mockMvc.perform(get("/api/monitors/1/stats").param("period", "7d"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.period").value("7d"))
+                .andExpect(jsonPath("$.uptimePercent").doesNotExist());
+    }
+
+    @Test
+    void getStats_returns400_whenPeriodUnknown() throws Exception {
+        when(monitorService.getStats(1L, "1y"))
+                .thenThrow(new InvalidRequestException("Unknown period '1y', expected one of: 24h, 7d, 30d"));
+
+        mockMvc.perform(get("/api/monitors/1/stats").param("period", "1y"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Unknown period '1y', expected one of: 24h, 7d, 30d"));
+    }
+
+    @Test
+    void getStats_returns404_whenMonitorMissing() throws Exception {
+        when(monitorService.getStats(99L, "24h")).thenThrow(new MonitorNotFoundException(99L));
+
+        mockMvc.perform(get("/api/monitors/99/stats"))
+                .andExpect(status().isNotFound());
     }
 
     private void assertCreateRejected(String body) throws Exception {

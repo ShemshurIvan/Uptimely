@@ -1,18 +1,19 @@
 package com.project.uptimely.uptimely1.service;
 
-import com.project.uptimely.uptimely1.dto.CheckResultResponse;
-import com.project.uptimely.uptimely1.dto.MonitorRequest;
-import com.project.uptimely.uptimely1.dto.MonitorResponse;
-import com.project.uptimely.uptimely1.dto.UpdateMonitorRequest;
+import com.project.uptimely.uptimely1.dto.*;
 import com.project.uptimely.uptimely1.entity.CheckResult;
 import com.project.uptimely.uptimely1.entity.Monitor;
+import com.project.uptimely.uptimely1.exception.InvalidRequestException;
 import com.project.uptimely.uptimely1.exception.MonitorNotFoundException;
 import com.project.uptimely.uptimely1.repository.CheckResultRepository;
+import com.project.uptimely.uptimely1.repository.CheckStats;
 import com.project.uptimely.uptimely1.repository.MonitorRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
+
+import java.time.Instant;
 
 import static com.project.uptimely.uptimely1.entity.MonitorStatus.DOWN;
 import static com.project.uptimely.uptimely1.entity.MonitorStatus.UP;
@@ -92,6 +93,43 @@ public class MonitorService {
                 saved.getCheckedAt());
         return saved;
     }
+
+    @Transactional(readOnly = true)
+    public Page<CheckResultResponse> getChecks(Long id, Instant from, Instant to, Pageable pageable) {
+        findOrThrow(id);
+
+        Instant end = to != null ? to : Instant.now();
+        Instant start = from != null ? from : end.minus(StatsPeriod.LAST_24H.getDuration());
+        if (start.isAfter(end)) {
+            throw new InvalidRequestException("'from' must be before 'to'");
+        }
+
+        return checkResultRepository.findByMonitorIdAndCheckedAtBetween(id, start, end, pageable)
+                .map(CheckResultResponse::from);
+    }
+
+    @Transactional(readOnly = true)
+    public MonitorStatsResponse getStats(Long id, String period) {
+        findOrThrow(id);
+
+        StatsPeriod statsPeriod = StatsPeriod.fromValue(period);
+        Instant to = Instant.now();
+        Instant from = to.minus(statsPeriod.getDuration());
+
+        CheckStats stats = checkResultRepository.getStats(id, from);
+        long total = stats.getTotal();
+        long failed = stats.getFailed() != null ? stats.getFailed() : 0;
+        Double uptimePercent = total == 0 ? null : round((total - failed) * 100.0 / total);
+        Double avgResponseMs = stats.getAvgResponseMs() != null ? round(stats.getAvgResponseMs()) : null;
+
+        return new MonitorStatsResponse(id, statsPeriod.getValue(), from, to,
+                total, failed, uptimePercent, avgResponseMs);
+    }
+
+    private static double round(double value) {
+        return Math.round(value * 100) / 100.0;
+    }
+
 
 
     public CheckResultResponse checkNow(Long id) {

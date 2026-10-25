@@ -1,16 +1,16 @@
 package com.project.uptimely.uptimely1.controller;
 
-import com.project.uptimely.uptimely1.dto.CheckResultResponse;
-import com.project.uptimely.uptimely1.dto.MonitorRequest;
-import com.project.uptimely.uptimely1.dto.MonitorResponse;
-import com.project.uptimely.uptimely1.dto.UpdateMonitorRequest;
+import com.project.uptimely.uptimely1.dto.*;
 import com.project.uptimely.uptimely1.service.MonitorService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+
+import java.time.Instant;
 
 @RestController
 @RequestMapping("/api/monitors")
@@ -63,6 +63,17 @@ public class MonitorController {
     @PostMapping("/{id}/check")
     public CheckResultResponse checkMonitor(@PathVariable Long id) {
         return monitorService.checkNow(id);
+    }
+
+    @GetMapping("/{id}/checks")
+    public PagedModel<CheckResultResponse> getChecks(@PathVariable Long id, @RequestParam(required = false) Instant from,
+                                                     @RequestParam(required = false) Instant to, @PageableDefault(size = 20, sort = "checkedAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return new PagedModel<>(monitorService.getChecks(id, from, to, pageable));
+    }
+
+    @GetMapping("/{id}/stats")
+    public MonitorStatsResponse getStats(@PathVariable Long id, @RequestParam(defaultValue = "24h") String period) {
+        return monitorService.getStats(id, period);
     }
 }
 
