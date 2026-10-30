@@ -3,6 +3,7 @@ package com.project.uptimely.uptimely1.service;
 import com.project.uptimely.uptimely1.dto.*;
 import com.project.uptimely.uptimely1.entity.CheckResult;
 import com.project.uptimely.uptimely1.entity.Monitor;
+import com.project.uptimely.uptimely1.entity.MonitorStatus;
 import com.project.uptimely.uptimely1.exception.InvalidRequestException;
 import com.project.uptimely.uptimely1.exception.MonitorNotFoundException;
 import com.project.uptimely.uptimely1.repository.CheckResultRepository;
@@ -24,11 +25,14 @@ public class MonitorService {
     private final MonitorRepository monitorRepository;
     private final HealthCheckService healthCheckService;
     private final CheckResultRepository checkResultRepository;
+    private final AlertService alertService;
 
-    public MonitorService(MonitorRepository monitorRepository, HealthCheckService healthCheckService, CheckResultRepository checkResultRepository) {
+    public MonitorService(MonitorRepository monitorRepository, HealthCheckService healthCheckService,
+                          CheckResultRepository checkResultRepository, AlertService alertService) {
         this.monitorRepository = monitorRepository;
         this.healthCheckService = healthCheckService;
         this.checkResultRepository = checkResultRepository;
+        this.alertService = alertService;
     }
 
     @Transactional
@@ -86,11 +90,16 @@ public class MonitorService {
     }
 
     public CheckResult recordResult(CheckResult result) {
+        Monitor monitor = result.getMonitor();
+        MonitorStatus previous = monitor.getCurrentStatus();
+
         CheckResult saved = checkResultRepository.save(result);
         monitorRepository.updateStatus(
-                result.getMonitor().getId(),
+                monitor.getId(),
                 saved.getUp() ? UP : DOWN,
                 saved.getCheckedAt());
+
+        alertService.notifyIfChanged(monitor, previous, saved);
         return saved;
     }
 
@@ -129,8 +138,6 @@ public class MonitorService {
     private static double round(double value) {
         return Math.round(value * 100) / 100.0;
     }
-
-
 
     public CheckResultResponse checkNow(Long id) {
         Monitor monitor = findOrThrow(id);

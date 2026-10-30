@@ -54,6 +54,9 @@ class MonitorServiceTest {
     @Mock
     private HealthCheckService healthCheckService;
 
+    @Mock
+    private AlertService alertService;
+
     @InjectMocks
     private MonitorService monitorService;
 
@@ -205,6 +208,20 @@ class MonitorServiceTest {
         verify(monitorRepository).updateStatus(1L, MonitorStatus.DOWN, result.getCheckedAt());
         assertThat(response.up()).isFalse();
         assertThat(response.errorMessage()).isEqualTo("Connection refused");
+    }
+
+    @Test
+    void checkNow_passesStatusBeforeCheckToAlerts() {
+        Monitor existing = monitor("Google");
+        existing.setCurrentStatus(MonitorStatus.UP);
+        CheckResult result = checkResult(existing, false, 503);
+        when(monitorRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(healthCheckService.check(existing)).thenReturn(Mono.just(result));
+        when(checkResultRepository.save(result)).thenReturn(result);
+
+        monitorService.checkNow(1L);
+
+        verify(alertService).notifyIfChanged(existing, MonitorStatus.UP, result);
     }
 
     @Test
